@@ -30,6 +30,16 @@ wahoo-map-generator compare reference.map.lzma generated.map.lzma   # Markdown r
 `generate` options: `--col/--x`, `--row/--y`, `--zoom` (default 8), `--input <pbf>`, `--region <geofabrik id>`,
 `--cache-dir` (default `cache`), `-o`, `--no-compress`. The input PBF must be sorted (Geofabrik extracts are).
 
+Example extract download (Netherlands, about 1.4 GB, updated daily):
+
+```
+curl -O https://download.geofabrik.de/europe/netherlands-latest.osm.pbf
+wahoo-map-generator generate --col 131 --row 84 --input netherlands-latest.osm.pbf
+```
+
+Other regions are listed at https://download.geofabrik.de/. Without `--input` the tool downloads this file
+itself into `--cache-dir`.
+
 ## Tag mapping
 
 `data/tag-mapping.csv` (`kind,osm_tag,wahoo_tag,min_zoom,primary`) maps OSM tags to the Wahoo tag
