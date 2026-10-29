@@ -1,0 +1,29 @@
+# Minimum size (largest bounding-box side, in microdegrees; ~0.11 m per unit) of a way for the
+# listed OSM tags to be kept. Smaller ways lose the tag; a way without any remaining primary tag
+# is dropped. This keeps the number of minor areas close to the reference Wahoo tile, which is
+# not interesting for cycling. Derived with:
+#   cargo run --release --example area_thresholds -- reference.map generated.map
+# (modifier tags such as sport=* or religion=* follow their host feature and are not listed).
+amenity=parking,5702
+amenity=place_of_worship,2055
+amenity=school,5593
+amenity=shelter,873
+barrier=fence,12124
+barrier=retaining_wall,10476
+barrier=wall,13360
+landuse=cemetery,7037
+landuse=farmland,23049
+landuse=grass,8910
+landuse=meadow,13625
+landuse=orchard,9728
+leisure=garden,3335
+leisure=pitch,2339
+leisure=playground,1891
+leisure=sports_centre,12857
+leisure=swimming_pool,1705
+natural=grassland,14135
+natural=heath,4796
+natural=sand,4773
+natural=scrub,3273
+natural=tree_row,26028
+natural=wood,4191
