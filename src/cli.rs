@@ -17,9 +17,9 @@ use crate::tagmap::{Kind, TagMapping};
 use crate::tile::Tile;
 use crate::writer::{MapSpec, build_map};
 
-/// WahooTileGenerator: builds Wahoo-compatible mapsforge map tiles from OpenStreetMap data.
+/// WahooMapGenerator: builds Wahoo-compatible mapsforge map tiles from OpenStreetMap data.
 #[derive(Parser, Debug)]
-#[command(name = "wahoo-tile-generator", version)]
+#[command(name = "wahoo-map-generator", version)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -117,7 +117,7 @@ fn generate(args: &GenerateArgs, fetcher: &dyn Fetcher, out: &mut dyn Write) -> 
     let features = extract(BufReader::new(file), &bbox, &mapping)?;
     writeln!(out, "Found {} POIs and {} ways", features.pois.len(), features.ways.len())?;
 
-    let created_by = format!("wahoo-tile-generator {}", env!("CARGO_PKG_VERSION"));
+    let created_by = format!("wahoo-map-generator {}", env!("CARGO_PKG_VERSION"));
     let spec = MapSpec {
         tile,
         poi_tags: mapping.tags(Kind::Poi),
@@ -179,7 +179,7 @@ mod tests {
     }
 
     fn run_args(args: &[&str], fetcher: &dyn Fetcher) -> Result<String> {
-        let cli = Cli::try_parse_from(std::iter::once("wahoo-tile-generator").chain(args.iter().copied())).unwrap();
+        let cli = Cli::try_parse_from(std::iter::once("wahoo-map-generator").chain(args.iter().copied())).unwrap();
         let mut out = Vec::new();
         run(cli, fetcher, &mut out)?;
         Ok(String::from_utf8(out).unwrap())

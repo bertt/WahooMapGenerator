@@ -1,4 +1,4 @@
-//! WahooTileGenerator: builds Wahoo-compatible mapsforge map tiles from OpenStreetMap data.
+//! WahooMapGenerator: builds Wahoo-compatible mapsforge map tiles from OpenStreetMap data.
 
 pub mod extract;
 pub mod cli;

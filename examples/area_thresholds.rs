@@ -5,7 +5,7 @@
 //! Usage: `cargo run --release --example area_thresholds -- <reference.map> <generated.map> [ratio]`
 
 use std::collections::BTreeMap;
-use wahoo_tile_generator::reader;
+use wahoo_map_generator::reader;
 
 fn sizes(path: &str) -> BTreeMap<String, Vec<i32>> {
     let map = reader::read_map(&std::fs::read(path).unwrap()).unwrap();

@@ -1,7 +1,7 @@
 """Generates data/tag-mapping.csv from the tag table of a reference Wahoo tile.
 
 Usage:
-    wahoo-tile-generator inspect 84.map.lzma > data/reference-tags.tsv
+    wahoo-map-generator inspect 84.map.lzma > data/reference-tags.tsv
     uv run python tools/gen_tag_mapping.py data/reference-tags.tsv data/tag-mapping.csv
 
 The reference tile provides the Wahoo tag list (and its order, which defines the tag ids)

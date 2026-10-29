@@ -1,4 +1,4 @@
-# WahooTileGenerator
+# WahooMapGenerator
 
 A Rust tool that builds a Wahoo map tile (mapsforge v3 `.map`, LZMA-compressed) from
 OpenStreetMap data. It produces files shaped like
@@ -19,12 +19,12 @@ cargo build --release
 
 ```
 # Generate tile 8/131/84 (downloads the smallest covering Geofabrik extract automatically)
-wahoo-tile-generator generate --col 131 --row 84
+wahoo-map-generator generate --col 131 --row 84
 # -> tiles/8/131/84.map.lzma
 
-wahoo-tile-generator generate --col 131 --row 84 --input netherlands.osm.pbf --no-compress -o 84.map
-wahoo-tile-generator inspect 84.map.lzma          # TSV: kind, tag, count, min zoom
-wahoo-tile-generator compare reference.map.lzma generated.map.lzma   # Markdown report
+wahoo-map-generator generate --col 131 --row 84 --input netherlands.osm.pbf --no-compress -o 84.map
+wahoo-map-generator inspect 84.map.lzma          # TSV: kind, tag, count, min zoom
+wahoo-map-generator compare reference.map.lzma generated.map.lzma   # Markdown report
 ```
 
 `generate` options: `--col/--x`, `--row/--y`, `--zoom` (default 8), `--input <pbf>`, `--region <geofabrik id>`,

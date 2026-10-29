@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::tile::BBox;
 
 pub const GEOFABRIK_INDEX: &str = "https://download.geofabrik.de/index-v1.json";
-const USER_AGENT: &str = concat!("wahoo-tile-generator/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("wahoo-map-generator/", env!("CARGO_PKG_VERSION"));
 const SAMPLES_PER_AXIS: usize = 5;
 
 /// Opens a URL for streaming. Abstracted so tests do not need a network.
