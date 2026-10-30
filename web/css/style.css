@@ -63,17 +63,19 @@ code { background: rgba(255, 255, 255, 0.1); padding: 1px 6px; border-radius: 5p
 }
 
 .layout { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 0 28px 20px; align-items: start; }
-.panel { display: flex; flex-direction: column; gap: 10px; }
-.panel .card, .tool-list { padding: 10px 14px; border-radius: 14px; font-size: 13px; }
-.panel .card h2 { font-size: 15px; margin-bottom: 6px; }
-.panel .n { width: 22px; height: 22px; font-size: 12px; }
-.panel .drop { padding: 8px 10px; margin-bottom: 6px; }
-.panel .btn { padding: 6px 10px; font-size: 13px; }
-.panel .row { margin: 6px 0; }
-.panel .hint { font-size: 12px; margin: 6px 0; }
-.panel .active-style { padding: 7px 10px; margin: 8px 0; }
-.panel input[type=url], .panel select { padding: 5px 8px; font-size: 13px; }
-.panel .seg button { padding: 5px; font-size: 13px; }
+.panel { display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 170px); overflow-y: auto; scrollbar-width: thin; }
+.panel .card, .tool-list { padding: 8px 12px; border-radius: 12px; font-size: 12.5px; }
+.panel .card h2 { font-size: 14px; margin-bottom: 4px; }
+.panel .n { width: 20px; height: 20px; font-size: 11px; }
+.panel .drop { padding: 6px 8px; margin-bottom: 4px; }
+.panel .btn { padding: 4px 8px; font-size: 12.5px; }
+.panel .row { margin: 4px 0; }
+.panel .hint { font-size: 11.5px; margin: 4px 0; }
+.panel .active-style { padding: 5px 8px; margin: 6px 0; }
+.panel .active-style .meta { font-size: 11px; }
+.panel .field { margin: 4px 0; }
+.panel input[type=url], .panel select { padding: 4px 8px; font-size: 12.5px; }
+.panel .seg button { padding: 4px; font-size: 12.5px; }
 .panel .sample { margin-top: 0; }
 
 .card {
@@ -88,6 +90,7 @@ code { background: rgba(255, 255, 255, 0.1); padding: 1px 6px; border-radius: 5p
 .hint { color: var(--muted); font-size: 13px; margin: 8px 0; }
 .hint.warn { color: #d6c28f; }
 
+.tile-map { height: min(300px, 38vh); min-height: 200px; border-radius: 10px; overflow: hidden; margin-bottom: 8px; border: 1px solid var(--card-border); }
 .tile-info { padding: 10px 12px; border-radius: 10px; background: rgba(54, 209, 196, 0.1); border: 1px solid rgba(54, 209, 196, 0.35); font-size: 14px; }
 .tile-info.empty { background: rgba(255, 255, 255, 0.04); border-color: var(--card-border); color: var(--muted); }
 .tile-info b { color: var(--accent); }

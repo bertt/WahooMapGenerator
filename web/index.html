@@ -126,12 +126,9 @@
       <div class="form-row">
         <label>Tile (z / col / row)</label>
         <div>
-          <div class="coords">
-            <input type="number" value="8" disabled aria-label="Zoom" title="Wahoo tiles are always z=8">
-            <input type="number" id="tile-x" min="0" max="255" step="1" placeholder="col (x)" aria-label="Column">
-            <input type="number" id="tile-y" min="0" max="255" step="1" placeholder="row (y)" aria-label="Row">
-          </div>
-          <div id="tile-info" class="tile-info empty">Enter a column and row (0–255), e.g. 131 and 84 for the Netherlands.</div>
+          <div id="tile-map" class="tile-map"></div>
+          <div id="tile-info" class="tile-info empty">Click a cell in the z=8 grid to select a tile.</div>
+          <div id="tile-error" class="error hidden"></div>
           <p class="hint">The tile numbering is the one used by the official Wahoo tile files (<code>…/tiles/8/&lt;col&gt;/&lt;row&gt;.map.lzma</code>); these are standard XYZ tiles at zoom 8 (about 150 × 100 km each).</p>
         </div>
       </div>

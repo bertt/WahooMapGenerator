@@ -80,6 +80,7 @@ function selectTab(name) {
   show($('tab-viewer'), name === 'viewer');
   show($('tab-toolbox'), name === 'toolbox');
   if (name === 'viewer') map.resize();
+  if (name === 'toolbox') initTileMap();
   history.replaceState(null, '', name === 'viewer' ? location.pathname : `#${name}`);
 }
 for (const b of document.querySelectorAll('#tabs button[data-tab]')) b.addEventListener('click', () => selectTab(b.dataset.tab));
@@ -462,35 +463,146 @@ async function compressAndSave(prefix, errorId, name, run) {
 const lonOf = (x) => (x / 2 ** TILE_ZOOM) * 360 - 180;
 const latOf = (y) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / 2 ** TILE_ZOOM))) * 180) / Math.PI;
 
-function currentTile() {
-  const x = Number($('tile-x').value);
-  const y = Number($('tile-y').value);
-  const ok = $('tile-x').value !== '' && $('tile-y').value !== '' && Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < 2 ** TILE_ZOOM && y < 2 ** TILE_ZOOM;
-  return ok ? { x, y } : null;
+let selectedTile = null; // { x, y }
+let pbfBounds = null; // { west, south, east, north } from the PBF header, or null if unknown
+let tileMap = null;
+
+const currentTile = () => selectedTile;
+
+function tileOverlapsPbf(t) {
+  if (!pbfBounds) return true; // header has no bounding box: cannot check
+  const west = lonOf(t.x), east = lonOf(t.x + 1), north = latOf(t.y), south = latOf(t.y + 1);
+  return west < pbfBounds.east && east > pbfBounds.west && south < pbfBounds.north && north > pbfBounds.south;
+}
+
+// Reads the optional bounding box from the OSMHeader block of a PBF file.
+async function readPbfBounds(file) {
+  const buf = new Uint8Array(await file.slice(0, 1 << 20).arrayBuffer());
+  const view = new DataView(buf.buffer);
+  const readFields = (bytes) => {
+    const fields = [];
+    let p = 0;
+    const varint = () => {
+      let r = 0n, shift = 0n, b;
+      do { b = bytes[p++]; r |= BigInt(b & 0x7f) << shift; shift += 7n; } while (b & 0x80);
+      return r;
+    };
+    while (p < bytes.length) {
+      const key = Number(varint());
+      const num = key >> 3, wire = key & 7;
+      if (wire === 0) fields.push({ num, value: varint() });
+      else if (wire === 2) { const len = Number(varint()); fields.push({ num, bytes: bytes.subarray(p, p + len) }); p += len; }
+      else if (wire === 1) p += 8;
+      else if (wire === 5) p += 4;
+      else break;
+    }
+    return fields;
+  };
+  const headerLen = view.getUint32(0);
+  const blobHeader = readFields(buf.subarray(4, 4 + headerLen));
+  const dataSize = Number(blobHeader.find((f) => f.num === 3)?.value ?? 0n);
+  const blob = readFields(buf.subarray(4 + headerLen, 4 + headerLen + dataSize));
+  let block = blob.find((f) => f.num === 1)?.bytes;
+  const zlib = blob.find((f) => f.num === 3)?.bytes;
+  if (!block && zlib) {
+    block = new Uint8Array(await new Response(new Blob([zlib]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
+  }
+  const bboxBytes = block && readFields(block).find((f) => f.num === 1)?.bytes;
+  if (!bboxBytes) return null;
+  const zigzag = (v) => Number((v >> 1n) ^ -(v & 1n)) / 1e9;
+  const get = (n) => zigzag(readFields(bboxBytes).find((f) => f.num === n).value);
+  return { west: get(1), east: get(2), north: get(3), south: get(4) };
+}
+
+function tileRing(x, y) {
+  const w = lonOf(x), e = lonOf(x + 1), n = latOf(y), s = latOf(y + 1);
+  return [[w, n], [e, n], [e, s], [w, s], [w, n]];
+}
+
+function updateTileLayers() {
+  if (!tileMap?.getSource('sel-tile')) return;
+  tileMap.getSource('sel-tile').setData(selectedTile
+    ? { type: 'Feature', geometry: { type: 'Polygon', coordinates: [tileRing(selectedTile.x, selectedTile.y)] } }
+    : EMPTY_FC);
+  tileMap.getSource('pbf-bounds').setData(pbfBounds
+    ? { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[pbfBounds.west, pbfBounds.north], [pbfBounds.east, pbfBounds.north], [pbfBounds.east, pbfBounds.south], [pbfBounds.west, pbfBounds.south], [pbfBounds.west, pbfBounds.north]]] } }
+    : EMPTY_FC);
+}
+
+function initTileMap() {
+  if (tileMap) { tileMap.resize(); return; }
+  const n = 2 ** TILE_ZOOM;
+  const lines = [];
+  for (let i = 0; i <= n; i++) {
+    lines.push([[lonOf(i), 85.0511], [lonOf(i), -85.0511]]);
+    lines.push([[-180, latOf(i)], [180, latOf(i)]]);
+  }
+  tileMap = new maplibregl.Map({
+    container: 'tile-map',
+    center: [5, 52],
+    zoom: 5,
+    style: {
+      version: 8,
+      sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap contributors' } },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+    },
+  });
+  tileMap.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
+  tileMap.on('load', () => {
+    tileMap.addSource('grid', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: lines } } });
+    tileMap.addSource('sel-tile', { type: 'geojson', data: EMPTY_FC });
+    tileMap.addSource('pbf-bounds', { type: 'geojson', data: EMPTY_FC });
+    tileMap.addLayer({ id: 'grid', type: 'line', source: 'grid', paint: { 'line-color': '#1a73e8', 'line-width': 1, 'line-opacity': 0.7 } });
+    tileMap.addLayer({ id: 'pbf-bounds', type: 'line', source: 'pbf-bounds', paint: { 'line-color': '#2e9e3e', 'line-width': 2, 'line-dasharray': [3, 2] } });
+    tileMap.addLayer({ id: 'sel-fill', type: 'fill', source: 'sel-tile', paint: { 'fill-color': '#ff2d95', 'fill-opacity': 0.3 } });
+    tileMap.addLayer({ id: 'sel-outline', type: 'line', source: 'sel-tile', paint: { 'line-color': '#ff2d95', 'line-width': 3 } });
+    updateTileLayers();
+  });
+  tileMap.on('click', (e) => {
+    const x = Math.floor(((e.lngLat.lng + 180) / 360) * n);
+    const rad = (e.lngLat.lat * Math.PI) / 180;
+    const y = Math.floor(((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n);
+    if (x < 0 || y < 0 || x >= n || y >= n) return;
+    selectedTile = { x, y };
+    updateTool();
+  });
 }
 
 function updateTool() {
   const t = currentTile();
   const info = $('tile-info');
   info.classList.toggle('empty', !t);
+  let error = '';
   if (t) {
     info.innerHTML = `<b>${TILE_ZOOM}/${t.x}/${t.y}</b> — lon ${lonOf(t.x).toFixed(3)} … ${lonOf(t.x + 1).toFixed(3)}, lat ${latOf(t.y + 1).toFixed(3)} … ${latOf(t.y).toFixed(3)}<br>Output file: <code>${t.y}.map.lzma</code>`;
+    if (state.pbf && !tileOverlapsPbf(t)) error = `Tile ${TILE_ZOOM}/${t.x}/${t.y} does not overlap the area covered by the PBF file. Select a tile inside the green outline.`;
   } else {
-    info.textContent = `Enter a column and row (0–${2 ** TILE_ZOOM - 1}), e.g. 131 and 84 for the Netherlands.`;
+    info.textContent = 'Click a cell in the z=8 grid to select a tile.';
   }
-  $('generate').disabled = state.busy || !t || !state.pbf;
+  showError('tile-error', error);
+  updateTileLayers();
+  $('generate').disabled = state.busy || !t || !state.pbf || !!error;
 }
 
-function setPbf(file) {
+async function setPbf(file) {
   state.pbf = file || null;
+  pbfBounds = null;
   $('pbf-name').textContent = file ? file.name : 'Drop an .osm.pbf file here or click to browse';
   $('pbf-size').textContent = file ? fmtBytes(file.size) : 'The file never leaves your computer.';
+  updateTool();
+  if (!file) return;
+  try {
+    const bounds = await readPbfBounds(file);
+    if (state.pbf !== file) return;
+    pbfBounds = bounds;
+    if (bounds && tileMap) tileMap.fitBounds([[bounds.west, bounds.south], [bounds.east, bounds.north]], { padding: 20, animate: false });
+  } catch {
+    pbfBounds = null; // unreadable header: skip the overlap check
+  }
   updateTool();
 }
 
 $('pbf-file').addEventListener('change', (e) => setPbf(e.target.files[0]));
-$('tile-x').addEventListener('input', updateTool);
-$('tile-y').addEventListener('input', updateTool);
 const drop = $('pbf-drop');
 for (const type of ['dragenter', 'dragover']) drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.add('over'); });
 for (const type of ['dragleave', 'drop']) drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.remove('over'); });
