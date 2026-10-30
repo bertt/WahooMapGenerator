@@ -113,8 +113,11 @@ fn generate(args: &GenerateArgs, fetcher: &dyn Fetcher, out: &mut dyn Write) -> 
         None => ensure_pbf(fetcher, GEOFABRIK_INDEX, &bbox, args.region.as_deref(), &args.cache_dir)?,
     };
     let mapping = TagMapping::embedded();
-    let file = File::open(&input).with_context(|| format!("cannot open {}", input.display()))?;
-    let features = extract(BufReader::new(file), &bbox, &mapping)?;
+    let features = extract(
+        || Ok(BufReader::new(File::open(&input).with_context(|| format!("cannot open {}", input.display()))?)),
+        &bbox,
+        &mapping,
+    )?;
     writeln!(out, "Found {} POIs and {} ways", features.pois.len(), features.ways.len())?;
 
     let created_by = format!("wahoo-map-generator {}", env!("CARGO_PKG_VERSION"));

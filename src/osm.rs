@@ -72,6 +72,23 @@ pub struct PbfWay {
 }
 
 #[derive(Clone, PartialEq, Message)]
+pub struct PbfRelation {
+    #[prost(int64, tag = "1")]
+    pub id: i64,
+    #[prost(uint32, repeated, tag = "2")]
+    pub keys: Vec<u32>,
+    #[prost(uint32, repeated, tag = "3")]
+    pub vals: Vec<u32>,
+    #[prost(int32, repeated, tag = "8")]
+    pub roles_sid: Vec<i32>,
+    #[prost(sint64, repeated, tag = "9")]
+    pub memids: Vec<i64>,
+    /// 0 = node, 1 = way, 2 = relation.
+    #[prost(int32, repeated, tag = "10")]
+    pub types: Vec<i32>,
+}
+
+#[derive(Clone, PartialEq, Message)]
 pub struct PrimitiveGroup {
     #[prost(message, repeated, tag = "1")]
     pub nodes: Vec<PbfNode>,
@@ -79,6 +96,8 @@ pub struct PrimitiveGroup {
     pub dense: Option<DenseNodes>,
     #[prost(message, repeated, tag = "3")]
     pub ways: Vec<PbfWay>,
+    #[prost(message, repeated, tag = "4")]
+    pub relations: Vec<PbfRelation>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -112,11 +131,21 @@ pub struct OsmWay {
     pub tags: Vec<(String, String)>,
 }
 
-/// A node or a way.
+/// An OSM relation; only its way members are kept.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OsmRelation {
+    pub id: i64,
+    /// `(way id, role)` of every way member.
+    pub ways: Vec<(i64, String)>,
+    pub tags: Vec<(String, String)>,
+}
+
+/// A node, a way or a relation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Element {
     Node(OsmNode),
     Way(OsmWay),
+    Relation(OsmRelation),
 }
 
 /// Reads all blocks and calls `f` for every way and for every node inside `node_area`.
@@ -203,10 +232,29 @@ fn decode_block(block: &PrimitiveBlock, area: &BBox, f: &mut impl FnMut(Element)
         for way in &group.ways {
             f(Element::Way(OsmWay { id: way.id, refs: delta_decode(&way.refs), tags: pairs(table, &way.keys, &way.vals)? }))?;
         }
-    }
-    Ok(())
-}
+                    for relation in &group.relations {
+                        f(Element::Relation(decode_relation(relation, table)?))?;
+                    }
+                }
+                Ok(())
+            }
 
+            fn decode_relation(relation: &PbfRelation, table: &[Vec<u8>]) -> Result<OsmRelation> {
+                ensure!(
+                    relation.roles_sid.len() == relation.memids.len() && relation.types.len() == relation.memids.len(),
+                    "relation member arrays differ in length"
+                );
+                let mut ways = Vec::new();
+                let mut id = 0i64;
+                for i in 0..relation.memids.len() {
+                    id += relation.memids[i];
+                    if relation.types[i] == 1 {
+                        let role = usize::try_from(relation.roles_sid[i]).context("negative role index")?;
+                        ways.push((id, string(table, role)?));
+                    }
+                }
+                Ok(OsmRelation { id: relation.id, ways, tags: pairs(table, &relation.keys, &relation.vals)? })
+            }
 fn delta_decode(values: &[i64]) -> Vec<i64> {
     values
         .iter()
@@ -279,6 +327,13 @@ pub mod testutil {
         pub tags: Vec<(&'static str, &'static str)>,
     }
 
+    pub struct TestRelation {
+        pub id: i64,
+        /// `(way id, role)`.
+        pub members: Vec<(i64, &'static str)>,
+        pub tags: Vec<(&'static str, &'static str)>,
+    }
+
     fn file_block(kind: &str, blob: &Blob) -> Vec<u8> {
         let body = blob.encode_to_vec();
         let header = BlobHeader { r#type: kind.to_string(), datasize: body.len() as i32 };
@@ -314,6 +369,11 @@ pub mod testutil {
 
     /// Builds a PBF with a header block, nodes (dense or plain, with differing units) and ways.
     pub fn build_pbf(nodes: &[TestNode], ways: &[TestWay], dense: bool) -> Vec<u8> {
+        build_pbf_with_relations(nodes, ways, &[], dense)
+    }
+
+    /// Like [`build_pbf`], with relations (way members only) after the ways.
+    pub fn build_pbf_with_relations(nodes: &[TestNode], ways: &[TestWay], relations: &[TestRelation], dense: bool) -> Vec<u8> {
         let mut out = file_block("OSMHeader", &Blob { raw: Some(vec![]), zlib_data: None });
 
         let mut st = Strings::new();
@@ -375,6 +435,23 @@ pub mod testutil {
                     })
                     .collect(),
             });
+        }
+        let mut prev_member = 0;
+        for r in relations {
+            let mut rel = PbfRelation {
+                id: r.id,
+                keys: r.tags.iter().map(|(k, _)| st.id(k)).collect(),
+                vals: r.tags.iter().map(|(_, v)| st.id(v)).collect(),
+                ..Default::default()
+            };
+            for (way, role) in &r.members {
+                rel.roles_sid.push(st.id(role) as i32);
+                rel.memids.push(way - prev_member);
+                rel.types.push(1);
+                prev_member = *way;
+            }
+            group.relations.push(rel);
+            prev_member = 0;
         }
         let way_block = PrimitiveBlock {
             stringtable: Some(StringTable { s: st.table }),
@@ -448,12 +525,40 @@ mod tests {
                 .map(|e| match e {
                     Element::Node(n) => n.id,
                     Element::Way(w) => w.id,
+                    Element::Relation(r) => r.id,
                 })
                 .collect();
             assert_eq!(ids, [10, 11, 13, 100]);
             let Element::Node(last) = &elements[2] else { panic!() };
             assert_eq!(last.tags, [("c".to_string(), "d".to_string())]);
         }
+    }
+
+    #[test]
+    fn reads_relations_with_way_members_only() {
+        let pbf = build_pbf_with_relations(
+            &[],
+            &[],
+            &[TestRelation { id: 7, members: vec![(5, "outer"), (9, "inner")], tags: vec![("type", "multipolygon")] }],
+            true,
+        );
+        let elements = collect(&pbf, &WORLD).unwrap();
+        assert_eq!(
+            elements,
+            [Element::Relation(OsmRelation {
+                id: 7,
+                ways: vec![(5, "outer".into()), (9, "inner".into())],
+                tags: vec![("type".into(), "multipolygon".into())],
+            })]
+        );
+
+        let table = [vec![], b"k".to_vec()];
+        let mixed = PbfRelation { memids: vec![1, 1], roles_sid: vec![0, 0], types: vec![0, 1], ..Default::default() };
+        assert_eq!(decode_relation(&mixed, &table).unwrap().ways, [(2, String::new())]);
+        let uneven = PbfRelation { memids: vec![1], ..Default::default() };
+        assert!(decode_relation(&uneven, &table).is_err());
+        let negative = PbfRelation { memids: vec![1], roles_sid: vec![-1], types: vec![1], ..Default::default() };
+        assert!(decode_relation(&negative, &table).is_err());
     }
 
     #[test]

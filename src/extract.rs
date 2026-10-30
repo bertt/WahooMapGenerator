@@ -7,7 +7,7 @@ use anyhow::{Result, ensure};
 
 use crate::model::{Point, Poi, Way};
 use crate::osm::{Element, read_pbf};
-use crate::tagmap::{Kind, TagMapping};
+use crate::tagmap::{Classified, Kind, TagMapping};
 use crate::tile::BBox;
 
 /// Nodes this far outside the tile (0.1 degrees) are kept so that ways crossing the tile border
@@ -34,16 +34,150 @@ fn elevation(tags: &[(String, String)]) -> Option<i32> {
     value.is_finite().then(|| value.round() as i32)
 }
 
-/// Reads a PBF stream (sorted nodes, then ways) and collects every feature of the tile.
+/// A multipolygon relation with a known tag; members are way ids.
+struct Multipolygon {
+    tags: Vec<(String, String)>,
+    outer: Vec<i64>,
+    inner: Vec<i64>,
+}
+
+/// A way that is a member of a multipolygon: end node ids plus the points inside the read area.
+struct MemberWay {
+    first: i64,
+    last: i64,
+    points: Vec<Point>,
+}
+
+/// First pass: finds the multipolygon relations that carry a mapped tag.
+fn collect_multipolygons<R: Read>(pbf: R, mapping: &TagMapping) -> Result<Vec<Multipolygon>> {
+    let nothing = BBox { min_lat: 1, min_lon: 1, max_lat: 0, max_lon: 0 };
+    let mut found = Vec::new();
+    read_pbf(pbf, &nothing, |element| {
+        if let Element::Relation(rel) = element
+            && tag(&rel.tags, "type") == Some("multipolygon")
+            && mapping.classify(Kind::Way, &rel.tags).is_some()
+        {
+            let (inner, outer): (Vec<_>, Vec<_>) = rel.ways.iter().partition(|(_, role)| role == "inner");
+            found.push(Multipolygon {
+                tags: rel.tags,
+                outer: outer.into_iter().map(|(id, _)| *id).collect(),
+                inner: inner.into_iter().map(|(id, _)| *id).collect(),
+            });
+        }
+        Ok(())
+    })?;
+    Ok(found)
+}
+
+/// Chains way members by shared end nodes into closed rings. Chains that do not close are dropped.
+fn join_rings(ids: &[i64], members: &HashMap<i64, MemberWay>) -> Vec<Vec<Point>> {
+    let mut seen = std::collections::HashSet::new();
+    let mut pending: Vec<&MemberWay> = ids.iter().filter(|id| seen.insert(**id)).filter_map(|id| members.get(id)).collect();
+    let mut rings = Vec::new();
+    while let Some(start) = pending.pop() {
+        let (first, mut last, mut points) = (start.first, start.last, start.points.clone());
+        while first != last {
+            let Some(i) = pending.iter().position(|w| w.first == last || w.last == last) else { break };
+            let next = pending.swap_remove(i);
+            if next.first == last {
+                points.extend(next.points.iter().copied());
+                last = next.last;
+            } else {
+                points.extend(next.points.iter().rev().copied());
+                last = next.first;
+            }
+        }
+        if first != last {
+            continue;
+        }
+        points.dedup();
+        if points.first() != points.last()
+            && let Some(&p) = points.first()
+        {
+            points.push(p);
+        }
+        if points.len() >= 4 {
+            rings.push(points);
+        }
+    }
+    rings
+}
+
+/// Ray casting test; `ring` may or may not repeat its first point.
+fn ring_contains(ring: &[Point], p: Point) -> bool {
+    let mut inside = false;
+    let mut j = ring.len() - 1;
+    for i in 0..ring.len() {
+        let (a, b) = (ring[i], ring[j]);
+        if (a.lat > p.lat) != (b.lat > p.lat) {
+            let t = f64::from(p.lat - a.lat) / f64::from(b.lat - a.lat);
+            if f64::from(p.lon) < f64::from(a.lon) + t * f64::from(b.lon - a.lon) {
+                inside = !inside;
+            }
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Builds the features of a multipolygon: one way per outer ring, holding the inner rings it contains.
+fn multipolygon_rings(mp: &Multipolygon, members: &HashMap<i64, MemberWay>) -> Vec<Vec<Vec<Point>>> {
+    let mut groups: Vec<Vec<Vec<Point>>> = join_rings(&mp.outer, members).into_iter().map(|r| vec![r]).collect();
+    for inner in join_rings(&mp.inner, members) {
+        let owner = if groups.len() == 1 {
+            Some(0)
+        } else {
+            groups.iter().position(|g| ring_contains(&g[0], inner[0]))
+        };
+        if let Some(i) = owner {
+            groups[i].push(inner);
+        }
+    }
+    groups
+}
+
+/// Applies the area size filter and the tile test to a feature built from `rings`.
+fn finish(
+    tags: &[(String, String)],
+    class: Classified,
+    rings: Vec<Vec<Point>>,
+    mapping: &TagMapping,
+    tile: &BBox,
+) -> Option<Way> {
+    let mut feature = Way {
+        layer: layer(tags),
+        tags: class.tags,
+        name: tag(tags, "name").map(str::to_string),
+        house_number: None,
+        reference: tag(tags, "ref").map(str::to_string),
+        zoom: class.zoom,
+        rings,
+    };
+    let bounds = feature.bounds()?;
+    let size = (bounds.max_lat - bounds.min_lat).max(bounds.max_lon - bounds.min_lon);
+    let class = mapping.classify_way(tags, size)?;
+    (feature.tags, feature.zoom) = (class.tags, class.zoom);
+    bounds.intersects(tile).then_some(feature)
+}
+
+/// Reads a sorted PBF (nodes, ways, relations) and collects every feature of the tile.
+///
+/// `open` must return a fresh reader of the same file each time: the file is read twice, first to
+/// find the multipolygon relations (which hold e.g. the large lakes), then for the features.
 ///
 /// All nodes with a known POI tag inside the tile become POIs, without thinning (see
-/// WahooMapStyles issue #1). Relations are not processed.
-pub fn extract<R: Read>(pbf: R, tile: &BBox, mapping: &TagMapping) -> Result<Extraction> {
+/// WahooMapStyles issue #1). Multipolygon relations become ways with their outer ring first and
+/// the inner rings (holes) after it; the tags are those of the relation.
+pub fn extract<R: Read>(open: impl Fn() -> Result<R>, tile: &BBox, mapping: &TagMapping) -> Result<Extraction> {
+    let multipolygons = collect_multipolygons(open()?, mapping)?;
+    let member_ids: std::collections::HashSet<i64> =
+        multipolygons.iter().flat_map(|m| m.outer.iter().chain(&m.inner)).copied().collect();
+    let mut members: HashMap<i64, MemberWay> = HashMap::new();
     let area = tile.expanded(MARGIN_MICRO);
     let mut nodes: HashMap<i64, Point> = HashMap::new();
     let mut result = Extraction::default();
     let mut seen_way = false;
-    read_pbf(pbf, &area, |element| {
+    read_pbf(open()?, &area, |element| {
         match element {
             Element::Node(node) => {
                 ensure!(!seen_way, "the PBF file must be sorted (nodes before ways)");
@@ -65,6 +199,12 @@ pub fn extract<R: Read>(pbf: R, tile: &BBox, mapping: &TagMapping) -> Result<Ext
             }
             Element::Way(way) => {
                 seen_way = true;
+                if member_ids.contains(&way.id)
+                    && let (Some(&first), Some(&last)) = (way.refs.first(), way.refs.last())
+                {
+                    let points = way.refs.iter().filter_map(|r| nodes.get(r).copied()).collect();
+                    members.insert(way.id, MemberWay { first, last, points });
+                }
                 let Some(class) = mapping.classify(Kind::Way, &way.tags) else {
                     return Ok(());
                 };
@@ -72,37 +212,105 @@ pub fn extract<R: Read>(pbf: R, tile: &BBox, mapping: &TagMapping) -> Result<Ext
                 if ring.len() < 2 {
                     return Ok(());
                 }
-                let mut feature = Way {
-                    layer: layer(&way.tags),
-                    tags: class.tags,
-                    name: tag(&way.tags, "name").map(str::to_string),
-                    house_number: None,
-                    reference: tag(&way.tags, "ref").map(str::to_string),
-                    zoom: class.zoom,
-                    rings: vec![ring],
-                };
-                let bounds = feature.bounds().expect("a ring has at least two points");
-                let size = (bounds.max_lat - bounds.min_lat).max(bounds.max_lon - bounds.min_lon);
-                let Some(class) = mapping.classify_way(&way.tags, size) else {
-                    return Ok(());
-                };
-                (feature.tags, feature.zoom) = (class.tags, class.zoom);
-                if bounds.intersects(tile) {
-                    result.ways.push(feature);
-                }
+                result.ways.extend(finish(&way.tags, class, vec![ring], mapping, tile));
             }
+            Element::Relation(_) => {}
         }
         Ok(())
     })?;
+    for mp in &multipolygons {
+        for rings in multipolygon_rings(mp, &members) {
+            let Some(class) = mapping.classify(Kind::Way, &mp.tags) else { continue };
+            result.ways.extend(finish(&mp.tags, class, rings, mapping, tile));
+        }
+    }
     Ok(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::osm::testutil::{TestNode, TestWay, build_pbf};
+    use crate::osm::testutil::{TestNode, TestRelation, TestWay, build_pbf, build_pbf_with_relations};
 
     const TILE: BBox = BBox { min_lat: 52_000_000, min_lon: 5_000_000, max_lat: 53_000_000, max_lon: 6_000_000 };
+
+    fn extract(data: &[u8], tile: &BBox, mapping: &TagMapping) -> Result<Extraction> {
+        super::extract(|| Ok(data), tile, mapping)
+    }
+
+    #[test]
+    fn multipolygon_relations_become_ways_with_holes() {
+        let mapping = TagMapping::parse("way,natural=water,natural=water,8,true\n").unwrap();
+        let n = |id, lat, lon| node(id, lat, lon, vec![]);
+        let pbf = build_pbf_with_relations(
+            &[
+                n(1, 52_100_000, 5_100_000),
+                n(2, 52_100_000, 5_900_000),
+                n(3, 52_900_000, 5_900_000),
+                n(4, 52_900_000, 5_100_000),
+                n(5, 52_400_000, 5_400_000),
+                n(6, 52_400_000, 5_600_000),
+                n(7, 52_600_000, 5_600_000),
+                n(8, 52_600_000, 5_400_000),
+            ],
+            &[
+                // The outer ring is split in two ways, one of them reversed.
+                TestWay { id: 10, refs: vec![1, 2, 3], tags: vec![] },
+                TestWay { id: 11, refs: vec![1, 4, 3], tags: vec![] },
+                TestWay { id: 12, refs: vec![5, 6, 7, 8, 5], tags: vec![] },
+                TestWay { id: 13, refs: vec![1, 2], tags: vec![] },
+            ],
+            &[
+                TestRelation {
+                    id: 100,
+                    members: vec![(10, "outer"), (11, "outer"), (12, "inner")],
+                    tags: vec![("type", "multipolygon"), ("natural", "water"), ("name", "Plas")],
+                },
+                // Unclosed outer ring, not a multipolygon and untagged relations are ignored.
+                TestRelation { id: 101, members: vec![(13, "outer")], tags: vec![("type", "multipolygon"), ("natural", "water")] },
+                TestRelation { id: 102, members: vec![(10, "outer"), (11, "outer")], tags: vec![("type", "route"), ("natural", "water")] },
+                TestRelation { id: 103, members: vec![(10, "outer"), (11, "outer")], tags: vec![("type", "multipolygon")] },
+            ],
+            true,
+        );
+        let result = extract(&pbf, &TILE, &mapping).unwrap();
+        assert_eq!(result.ways.len(), 1);
+        let way = &result.ways[0];
+        assert_eq!(way.name.as_deref(), Some("Plas"));
+        assert_eq!(way.tags, vec![0]);
+        assert_eq!(way.rings.len(), 2);
+        assert_eq!(way.rings[0].len(), 5);
+        assert_eq!(way.rings[0].first(), way.rings[0].last());
+        assert_eq!(way.rings[1].len(), 5);
+    }
+
+    #[test]
+    fn holes_go_to_the_outer_ring_that_contains_them() {
+        let mapping = TagMapping::parse("way,natural=water,natural=water,8,true\n").unwrap();
+        let square = |first: i64, lat: i32, lon: i32, size: i32| {
+            let nodes = [(lat, lon), (lat, lon + size), (lat + size, lon + size), (lat + size, lon)];
+            let n: Vec<TestNode> = nodes.iter().zip(first..).map(|(p, id)| node(id, p.0, p.1, vec![])).collect();
+            (n, TestWay { id: first, refs: vec![first, first + 1, first + 2, first + 3, first], tags: vec![] })
+        };
+        let (n1, outer_a) = square(1, 52_100_000, 5_100_000, 300_000);
+        let (n2, outer_b) = square(11, 52_100_000, 5_600_000, 300_000);
+        let (n3, hole) = square(21, 52_200_000, 5_700_000, 100_000);
+        let nodes: Vec<TestNode> = [n1, n2, n3].into_iter().flatten().collect();
+        let pbf = build_pbf_with_relations(
+            &nodes,
+            &[outer_a, outer_b, hole],
+            &[TestRelation {
+                id: 100,
+                members: vec![(1, "outer"), (11, "outer"), (21, "inner")],
+                tags: vec![("type", "multipolygon"), ("natural", "water")],
+            }],
+            true,
+        );
+        let result = extract(&pbf, &TILE, &mapping).unwrap();
+        let mut counts: Vec<usize> = result.ways.iter().map(|w| w.rings.len()).collect();
+        counts.sort();
+        assert_eq!(counts, [1, 2]);
+    }
 
     fn mapping() -> TagMapping {
         TagMapping::parse(

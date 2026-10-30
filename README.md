@@ -53,7 +53,7 @@ Tag ids follow first-seen order, matching the reference header (118 POI tags, 19
 
 ## Architecture
 
-`osm` (PBF reader) → `extract` (POIs/ways via `tagmap`) → `writer` (mapsforge) → `lzma`.
+`osm` (PBF reader: nodes, ways, relations) → `extract` (POIs/ways/multipolygons via `tagmap`; two passes over the PBF) → `writer` (mapsforge) → `lzma`.
 `reader`, `inspect` and `cli compare` read tiles back for validation. `download` handles Geofabrik.
 `tile` holds the Web-Mercator maths and the mapsforge tile grid.
 
@@ -130,7 +130,8 @@ Large forests, water, parks and all highways are not filtered.
 
 Known limitations:
 
-- No relations/multipolygons; no sea/coastline (`natural=sea|nosea`) or water flag.
+- Only multipolygon relations with a mapped tag are processed (e.g. large lakes); the input is read twice for this.
+  Outer rings that do not close are dropped. No sea/coastline (`natural=sea|nosea`) or water flag.
 - Only nodes within 0.1° of the tile are read, so ways that extend further are cut at that margin.
 - No area-centre label POIs (the reference has e.g. `landuse=forest` POIs).
 - No `hike_node`, `cycle_node` or `cycleway_*_oneway` tags (no OSM source).
