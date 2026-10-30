@@ -127,22 +127,45 @@ fn read_subfile(
     pois: &mut Vec<Poi>,
     ways: &mut Vec<Way>,
 ) -> Result<()> {
+    let index = read_index(data, header, sub)?;
+    for i in 0..index.grid.len() {
+        let (p, w) = read_one_tile(data, sub, &index, i)?;
+        pois.extend(p);
+        ways.extend(w);
+    }
+    Ok(())
+}
+
+/// The tile grid of a sub file and the byte offset of every tile (relative to the sub file start).
+#[derive(Clone, Debug)]
+pub struct SubIndex {
+    pub grid: Grid,
+    offsets: Vec<usize>,
+}
+
+/// Reads the tile index of a sub file.
+pub fn read_index(data: &[u8], header: &Header, sub: &SubFile) -> Result<SubIndex> {
     let grid = Grid::from_bbox(&header.bbox, sub.base_zoom);
-    let start = sub.start as usize;
-    let mut index = Cursor::new(data, start);
+    let mut index = Cursor::new(data, sub.start as usize);
     let mut offsets = Vec::with_capacity(grid.len());
     for _ in 0..grid.len() {
         let raw = index.take(5)?.iter().fold(0u64, |acc, b| (acc << 8) | u64::from(*b));
         offsets.push((raw & 0x7f_ffff_ffff) as usize);
     }
-    for (i, offset) in offsets.iter().enumerate() {
-        let tile = grid.tile_at(i);
-        let mut c = Cursor::new(data, start + offset);
-        read_tile(&mut c, sub, tile.origin(), pois, ways)
-            .with_context(|| format!("tile {}/{}/{}", tile.zoom, tile.x, tile.y))?;
-    }
-    Ok(())
+    Ok(SubIndex { grid, offsets })
 }
+
+/// Decodes one tile of a sub file, given its row-major index in the grid.
+pub fn read_one_tile(data: &[u8], sub: &SubFile, index: &SubIndex, i: usize) -> Result<(Vec<Poi>, Vec<Way>)> {
+    let tile = index.grid.tile_at(i);
+    let offset = *index.offsets.get(i).context("tile index out of range")?;
+    let mut c = Cursor::new(data, sub.start as usize + offset);
+    let (mut pois, mut ways) = (Vec::new(), Vec::new());
+    read_tile(&mut c, sub, tile.origin(), &mut pois, &mut ways)
+        .with_context(|| format!("tile {}/{}/{}", tile.zoom, tile.x, tile.y))?;
+    Ok((pois, ways))
+}
+
 
 fn read_tile(
     c: &mut Cursor,

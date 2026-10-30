@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wahoo Map Generator – view and build offline maps for your ELEMNT</title>
+  <meta name="description" content="View Wahoo mapsforge maps with a render theme, or convert an OpenStreetMap extract into a Wahoo map right in your browser.">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="brand">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 4C15.2 4 8 11 8 19.7 8 31 24 44 24 44s16-13 16-24.3C40 11 32.8 4 24 4z" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="24" cy="19.5" r="5.5" fill="currentColor"/></svg>
+      <div>
+        <h1>Wahoo Map Generator</h1>
+        <p>View and build offline maps for your Wahoo ELEMNT — entirely in your browser.</p>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-tab="viewer" class="active">Viewer</button>
+      <button data-tab="toolbox">Toolbox</button>
+      <button type="button" id="howto-open" class="howto-btn">Put the map on your Wahoo</button>
+      <a class="gh" href="https://github.com/bertt/WahooMapGenerator" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+
+
+
+  <!-- ===================== Viewer ===================== -->
+  <main class="layout" id="tab-viewer">
+    <aside class="panel">
+      <section class="card">
+        <h2><span class="n">1</span> Map</h2>
+        <label class="drop small">
+          <input type="file" id="map-file" accept=".map,.lzma">
+          <span class="drop-title">Drop or click to upload <code>.map</code> / <code>.map.lzma</code></span>
+        </label>
+        <div class="row">
+          <input type="url" id="map-url" value="https://cdn.wahooligan.com/wahoo-maps/23/tiles/8/131/84.map.lzma" placeholder="https://…/84.map.lzma (CORS required)">
+          <button class="btn" id="map-url-go">Load</button>
+        </div>
+        <button class="btn sample" id="load-sample">Load sample: official Wahoo tile 8/131/84 (33 MB)</button>
+        <div class="progress hidden" id="load-progress">
+          <div class="bar"><div class="fill" id="load-fill"></div></div>
+          <div class="progress-text" id="load-text"></div>
+        </div>
+        <div id="load-error" class="error hidden"></div>
+        <p class="hint">No map yet? Create one in the <a href="#toolbox" data-goto="toolbox">Toolbox</a>.</p>
+      </section>
+
+      <section class="card">
+        <h2><span class="n">2</span> Style</h2>
+        <div class="seg" id="style-mode">
+          <button data-mode="default" class="active">Default</button>
+          <button data-mode="url">URL</button>
+          <button data-mode="upload">Upload</button>
+        </div>
+        <div id="style-url-row" class="row hidden">
+          <input type="url" id="style-url" placeholder="https://…/theme.xml (CORS required)">
+          <button class="btn" id="style-url-go">Load</button>
+        </div>
+        <div id="style-upload-row" class="row hidden">
+          <input type="file" id="style-file" accept=".xml">
+        </div>
+        <button class="btn sample" id="style-sample">Load sample style: vtm-elemnt-enhanced.xml</button>
+        <div class="active-style">
+          <span class="label">Active style</span>
+          <strong id="style-name">Wahoo ELEMNT default</strong>
+          <span class="meta" id="style-meta">Loading…</span>
+        </div>
+        <label class="field">Variant
+          <select id="variant"></select>
+        </label>
+        <p class="hint">Generated maps contain no sea or land polygons, so unpainted areas show the plain background (white, or black for Dark) in this viewer.</p>
+        <div id="style-error" class="error hidden"></div>
+      </section>
+    </aside>
+
+    <section class="stage">
+      <div id="map"></div>
+      <div class="empty" id="empty">
+        <div>
+          <h3>No map loaded</h3>
+          <p>Upload a <code>.map</code> / <code>.map.lzma</code> or enter a URL to visualise it with the selected style.</p>
+        </div>
+      </div>
+      <div class="toolbar hidden" id="toolbar"><span id="map-title"></span></div>
+      <div class="legend hidden" id="zoom-hint">Zoom in to level 11 or higher to see the map data.</div>
+    </section>
+  </main>
+
+  <!-- ===================== Toolbox ===================== -->
+  <main class="toolbox hidden" id="tab-toolbox">
+    <aside class="card tool-list">
+      <h2>Toolbox</h2>
+      <details open>
+        <summary>Conversion</summary>
+        <ul>
+          <li><button class="tool active">OSM PBF → Wahoo map</button></li>
+        </ul>
+      </details>
+    </aside>
+
+    <section class="card dialog">
+      <h2>OSM PBF → Wahoo map</h2>
+      <p class="hint">Extracts one z=8 tile from an OpenStreetMap extract and writes a Wahoo (mapsforge v3) map file.</p>
+
+      <div class="form-row">
+        <label for="pbf-file">Input PBF</label>
+        <div>
+          <label class="drop" id="pbf-drop">
+            <input type="file" id="pbf-file" accept=".pbf,.osm.pbf">
+            <span class="drop-title" id="pbf-name">Drop an <code>.osm.pbf</code> file here or click to browse</span>
+            <span class="drop-sub" id="pbf-size">The file never leaves your computer.</span>
+          </label>
+          <p class="hint">Get one from <a href="https://download.geofabrik.de/" target="_blank" rel="noopener">Geofabrik</a> (e.g. <em>Europe → Netherlands</em>). Geofabrik does not allow downloads from other web sites, so download it manually first.</p>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Tile (z / col / row)</label>
+        <div>
+          <div class="coords">
+            <input type="number" value="8" disabled aria-label="Zoom" title="Wahoo tiles are always z=8">
+            <input type="number" id="tile-x" min="0" max="255" step="1" placeholder="col (x)" aria-label="Column">
+            <input type="number" id="tile-y" min="0" max="255" step="1" placeholder="row (y)" aria-label="Row">
+          </div>
+          <div id="tile-info" class="tile-info empty">Enter a column and row (0–255), e.g. 131 and 84 for the Netherlands.</div>
+          <p class="hint">The tile numbering is the one used by the official Wahoo tile files (<code>…/tiles/8/&lt;col&gt;/&lt;row&gt;.map.lzma</code>); these are standard XYZ tiles at zoom 8 (about 150 × 100 km each).</p>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label></label>
+        <div>
+          <button class="btn primary" id="generate" disabled>Run</button>
+          <div class="progress hidden" id="gen-progress">
+            <div class="bar"><div class="fill" id="gen-fill"></div></div>
+            <div class="progress-text" id="gen-text"></div>
+          </div>
+          <p class="hint warn">The file is read twice (relations first, then features). A country extract can take a few minutes and up to ~3.5&nbsp;GB of memory — use a desktop Chrome, Edge or Firefox.</p>
+          <div id="gen-error" class="error hidden"></div>
+        </div>
+      </div>
+
+      <div class="result hidden" id="result">
+        <h3>Result</h3>
+        <p class="hint" id="result-text"></p>
+        <div class="row">
+          <button class="btn primary" id="res-lzma">Download .map.lzma</button>
+          <button class="btn" id="res-map">.map (uncompressed)</button>
+          <button class="btn" id="res-view">Open in viewer</button>
+        </div>
+        <div class="progress hidden" id="res-progress">
+          <div class="bar"><div class="fill" id="res-fill"></div></div>
+          <div class="progress-text" id="res-text"></div>
+        </div>
+        <div id="res-error" class="error hidden"></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="howto" id="howto">
+    <form method="dialog" class="howto-close"><button class="btn" aria-label="Close">✕</button></form>
+    <h2>Put the map on your Wahoo</h2>
+    <ol>
+      <li>Download the <code>.map.lzma</code> file. The Wahoo file layout is <code>tiles/&lt;col&gt;/&lt;row&gt;.map.lzma</code>; for tile <code>8/131/84</code> that is <code>84.map.lzma</code> in a folder <code>131</code>.</li>
+      <li>Connect your ELEMNT to your computer with its USB cable.</li>
+      <li>Open the device as a drive (or use Android File Transfer / OpenMTP on a Mac) and copy the file to
+        <code class="todo">TODO: path on the device</code>.</li>
+      <li>Safely eject the device, restart it and check the map in the navigation view.</li>
+    </ol>
+    <p class="hint">Back up the original map files first. Wahoo may change how maps are loaded at any time. Use at your own risk; not affiliated with Wahoo Fitness.</p>
+  </dialog>
+
+  <footer>
+    <p><strong>Use at your own risk.</strong> Not affiliated with Wahoo Fitness. Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL).
+    Rendering by <a href="https://maplibre.org/" target="_blank" rel="noopener">MapLibre</a>.</p>
+  </footer>
+
+  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

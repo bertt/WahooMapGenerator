@@ -21,6 +21,31 @@ pub struct Extraction {
     pub ways: Vec<Way>,
 }
 
+/// Node coordinates by id. A sorted PBF delivers ascending ids, so two flat vectors and a binary
+/// search are enough; this stays far below the 2 GB allocation limit of WebAssembly where a
+/// hash map of tens of millions of nodes does not.
+#[derive(Default)]
+struct NodeStore {
+    ids: Vec<i64>,
+    points: Vec<Point>,
+}
+
+impl NodeStore {
+    /// Returns false when the id does not ascend.
+    fn insert(&mut self, id: i64, point: Point) -> bool {
+        if self.ids.last().is_some_and(|last| *last >= id) {
+            return false;
+        }
+        self.ids.push(id);
+        self.points.push(point);
+        true
+    }
+
+    fn get(&self, id: i64) -> Option<Point> {
+        self.ids.binary_search(&id).ok().map(|i| self.points[i])
+    }
+}
+
 fn tag<'a>(tags: &'a [(String, String)], key: &str) -> Option<&'a str> {
     tags.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
 }
@@ -174,7 +199,7 @@ pub fn extract<R: Read>(open: impl Fn() -> Result<R>, tile: &BBox, mapping: &Tag
         multipolygons.iter().flat_map(|m| m.outer.iter().chain(&m.inner)).copied().collect();
     let mut members: HashMap<i64, MemberWay> = HashMap::new();
     let area = tile.expanded(MARGIN_MICRO);
-    let mut nodes: HashMap<i64, Point> = HashMap::new();
+    let mut nodes = NodeStore::default();
     let mut result = Extraction::default();
     let mut seen_way = false;
     read_pbf(open()?, &area, |element| {
@@ -182,7 +207,7 @@ pub fn extract<R: Read>(open: impl Fn() -> Result<R>, tile: &BBox, mapping: &Tag
             Element::Node(node) => {
                 ensure!(!seen_way, "the PBF file must be sorted (nodes before ways)");
                 let point = Point { lat: node.lat, lon: node.lon };
-                nodes.insert(node.id, point);
+                ensure!(nodes.insert(node.id, point), "the PBF file must be sorted (nodes by ascending id)");
                 if tile.contains(node.lat, node.lon)
                     && let Some(class) = mapping.classify(Kind::Poi, &node.tags)
                 {
@@ -202,13 +227,13 @@ pub fn extract<R: Read>(open: impl Fn() -> Result<R>, tile: &BBox, mapping: &Tag
                 if member_ids.contains(&way.id)
                     && let (Some(&first), Some(&last)) = (way.refs.first(), way.refs.last())
                 {
-                    let points = way.refs.iter().filter_map(|r| nodes.get(r).copied()).collect();
+                    let points = way.refs.iter().filter_map(|r| nodes.get(*r)).collect();
                     members.insert(way.id, MemberWay { first, last, points });
                 }
                 let Some(class) = mapping.classify(Kind::Way, &way.tags) else {
                     return Ok(());
                 };
-                let ring: Vec<Point> = way.refs.iter().filter_map(|r| nodes.get(r).copied()).collect();
+                let ring: Vec<Point> = way.refs.iter().filter_map(|r| nodes.get(*r)).collect();
                 if ring.len() < 2 {
                     return Ok(());
                 }

@@ -1,27 +1,35 @@
-//! LZMA ("lzma alone", `.lzma`) compression helpers.
+//! LZMA ("lzma alone", `.lzma`) compression helpers, pure Rust so they also run as WebAssembly.
 
-use std::io::Read;
+use std::io::{Read, Write};
 
-use anyhow::Result;
-use xz2::read::XzDecoder;
-use xz2::stream::{LzmaOptions, Stream};
+use anyhow::{Result, anyhow};
+use lzma_rust2::{LzmaOptions, LzmaReader, LzmaWriter};
+
+const PRESET: u32 = 6;
+const CHUNK: usize = 1 << 20;
 
 /// Compresses data into the legacy `.lzma` container used for Wahoo tiles.
 pub fn compress(data: &[u8]) -> Result<Vec<u8>> {
-    let options = LzmaOptions::new_preset(6)?;
-    let stream = Stream::new_lzma_encoder(&options)?;
-    let mut encoder = xz2::read::XzEncoder::new_stream(data, stream);
-    let mut out = Vec::new();
-    encoder.read_to_end(&mut out)?;
-    Ok(out)
+    compress_with_progress(data, |_| {})
+}
+
+/// Like [`compress`], calling `progress(bytes_done)` after every megabyte of input.
+pub fn compress_with_progress(data: &[u8], mut progress: impl FnMut(usize)) -> Result<Vec<u8>> {
+    let mut writer = LzmaWriter::new_use_header(Vec::new(), &LzmaOptions::with_preset(PRESET), None)?;
+    let mut done = 0;
+    for chunk in data.chunks(CHUNK) {
+        writer.write_all(chunk)?;
+        done += chunk.len();
+        progress(done);
+    }
+    Ok(writer.finish()?)
 }
 
 /// Decompresses a `.lzma` container.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
-    let stream = Stream::new_lzma_decoder(u64::MAX)?;
-    let mut decoder = XzDecoder::new_stream(data, stream);
+    let mut reader = LzmaReader::new_mem_limit(data, u32::MAX, None).map_err(|e| anyhow!("invalid lzma data: {e}"))?;
     let mut out = Vec::new();
-    decoder.read_to_end(&mut out)?;
+    reader.read_to_end(&mut out).map_err(|e| anyhow!("invalid lzma data: {e}"))?;
     Ok(out)
 }
 

@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@maplibre/maplibre-gl-style-spec": "^26.5.0",
+    "@xmldom/xmldom": "^0.9.12"
+  }
+}
+
+

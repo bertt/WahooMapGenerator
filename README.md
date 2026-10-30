@@ -1,5 +1,7 @@
 # WahooMapGenerator
 
+**Website: <https://bertt.github.io/WahooMapGenerator/>** – view Wahoo maps and convert an OSM PBF into a Wahoo map in your browser.
+
 A Rust tool that builds a Wahoo map tile (mapsforge v3 `.map`, LZMA-compressed) from
 OpenStreetMap data. It produces files shaped like
 `https://cdn.wahooligan.com/wahoo-maps/23/tiles/8/131/84.map.lzma`, where `8` is the zoom,
@@ -56,6 +58,25 @@ Tag ids follow first-seen order, matching the reference header (118 POI tags, 19
 `osm` (PBF reader: nodes, ways, relations) → `extract` (POIs/ways/multipolygons via `tagmap`; two passes over the PBF) → `writer` (mapsforge) → `lzma`.
 `reader`, `inspect` and `cli compare` read tiles back for validation. `download` handles Geofabrik.
 `tile` holds the Web-Mercator maths and the mapsforge tile grid.
+For the web site, `mvt` turns tiles of any map into Mapbox Vector Tiles and `wasm` exposes generate / compress / decompress / tile serving through wasm-bindgen (`--no-default-features` builds the library without the CLI).
+Node coordinates are kept in two sorted vectors (a PBF stores nodes by ascending id), which keeps memory below the 2 GB allocation limit of WebAssembly.
+
+## Web site
+
+`web/` is a static site (GitHub Pages, deployed by `.github/workflows/pages.yml`) that runs the same Rust code in the browser:
+pick a z=8 tile, drop in the `.osm.pbf` from [Geofabrik](https://download.geofabrik.de/), generate the map, view it in MapLibre
+(the Wahoo VTM render theme is translated to a MapLibre style in the browser; a custom theme can be uploaded or loaded by URL),
+click features to see their attributes, and download the result as `.map.lzma`. Existing `.map` / `.map.lzma` files can be opened by upload or URL.
+Geofabrik does not send CORS headers, so the extract has to be downloaded by hand and uploaded.
+
+```
+cargo build --release --lib --target wasm32-unknown-unknown --no-default-features
+wasm-bindgen --target web --out-dir web/pkg target/wasm32-unknown-unknown/release/wahoo_map.wasm   # CLI version must match Cargo.lock
+cd web && npm ci && npm test          # theme translator tests
+python -m http.server -d web          # then open http://localhost:8000
+```
+
+Generating tile 8/131/84 from the Netherlands extract in the browser takes about 2.5 minutes.
 
 ## Tests and coverage
 

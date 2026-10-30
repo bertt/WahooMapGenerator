@@ -1,0 +1,53 @@
+name: Deploy web site
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", "src/**", "data/**", "Cargo.toml", "Cargo.lock", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install the wasm-bindgen CLI matching Cargo.lock
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ {getline; gsub(/[^0-9.]/, "", $0); print; exit}' Cargo.lock)
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: Build WebAssembly
+        run: |
+          cargo build --release --lib --target wasm32-unknown-unknown --no-default-features
+          wasm-bindgen --target web --out-dir web/pkg target/wasm32-unknown-unknown/release/wahoo_map.wasm
+      - name: Test the theme translator
+        working-directory: web
+        run: npm ci && npm test
+      - name: Strip development files from the site
+        run: rm -rf web/node_modules web/test web/scripts web/package.json web/package-lock.json web/.gitignore
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
