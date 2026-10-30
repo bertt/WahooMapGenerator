@@ -261,8 +261,6 @@ function applyTheme(doc, label, meta) {
   select.replaceChildren(...options.map((o) => new Option(o.name, o.id)));
   select.value = (options.find((o) => o.name === 'Dark') || options[0])?.id ?? '';
   select.disabled = !options.length;
-  $('style-name').textContent = label;
-  $('style-meta').textContent = meta || '';
   showError('style-error', '');
   applyViewStyle();
 }
@@ -310,27 +308,8 @@ function applyViewStyle() {
 
 $('variant').addEventListener('change', applyViewStyle);
 
-for (const button of document.querySelectorAll('#style-mode button')) {
-  button.addEventListener('click', async () => {
-    document.querySelectorAll('#style-mode button').forEach((b) => b.classList.toggle('active', b === button));
-    const mode = button.dataset.mode;
-    show($('style-url-row'), mode === 'url');
-    show($('style-upload-row'), mode === 'upload');
-    if (mode === 'default') {
-      try {
-        await loadDefaultTheme();
-      } catch (err) {
-        showError('style-error', err.message);
-      }
-    }
-  });
-}
-
 $('style-url-go').addEventListener('click', () => loadStyleUrl($('style-url').value.trim()));
 $('style-sample').addEventListener('click', () => {
-  document.querySelectorAll('#style-mode button').forEach((b) => b.classList.toggle('active', b.dataset.mode === 'url'));
-  show($('style-url-row'), true);
-  show($('style-upload-row'), false);
   $('style-url').value = SAMPLE_STYLE_URL;
   loadStyleUrl(SAMPLE_STYLE_URL);
 });
