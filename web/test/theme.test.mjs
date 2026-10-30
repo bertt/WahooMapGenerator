@@ -91,14 +91,15 @@ test('areas, patterns, captions, node/way handling', () => {
     <m e="node" k="amenity"><line stroke="#000"/><symbol src="x.svg"/></m>
     <m k="place"><caption k="name" style="bold" size="20" dy="10" priority="2" stroke="#fff" stroke-width="2"/></m>`), OPTS);
   const ls = s.layers.slice(1);
-  assert.deepEqual(ls.map((l) => `${l.type}:${l['source-layer']}`), ['fill:way', 'fill:way', 'line:way', 'symbol:poi', 'symbol:way']);
+  assert.deepEqual(ls.map((l) => `${l.type}:${l['source-layer']}`), ['fill:way', 'fill:way', 'line:way', 'symbol:poi', 'symbol:poi', 'symbol:way']);
   assert.equal(ls[0].paint['fill-color'], '#c8e6b4');
-  const cap = ls[3];
+  assert.equal(ls[3].layout['icon-image'], 'x.svg');
+  assert.deepEqual(s.metadata.images, { 'x.svg': { src: 'x.svg', width: 20 } });
+  const cap = ls[4];
   assert.equal(cap['layout']['text-size'], 16);
   assert.deepEqual(cap.layout['text-offset'], [0, 0.625]);
   assert.equal(cap.paint['text-halo-width'], 1);
   assert.equal(cap.layout['symbol-sort-key'], 2);
-  assert.ok(s.metadata.ignored.includes('symbol x1'));
 });
 
 test('background colour', () => {

@@ -161,6 +161,7 @@ export function themeToStyle(doc, opts = {}) {
   let casingAt = -1;
   let counter = 0;
   const ignored = new Map();
+  const images = {};
   const ignore = (what) => ignored.set(what, (ignored.get(what) || 0) + 1);
 
   function emit(kind, sourceLayer, ctx, extra, spec) {
@@ -241,6 +242,22 @@ export function themeToStyle(doc, opts = {}) {
     }
   }
 
+  // Icons are referenced by their src; the host loads the image (see metadata.images).
+  function drawSymbol(ctx, a, onLine) {
+    if (!a.src) return ignore('symbol without src');
+    images[a.src] = { src: a.src, width: num(a['symbol-width'], 20) };
+    const layout = { 'icon-image': a.src, 'icon-allow-overlap': true };
+    let sourceLayer = 'poi';
+    if (onLine) {
+      sourceLayer = 'way';
+      layout['symbol-placement'] = 'line';
+      layout['symbol-spacing'] = Math.max(1, num(a['repeat-gap'], 200));
+      layout['icon-rotation-alignment'] = 'map';
+    }
+    const l = emit(onLine ? 'linesymbol' : 'symbol', sourceLayer, ctx, [], { type: 'symbol', layout });
+    if (l) layers.push(l);
+  }
+
   function drawElement(el, parentCtx) {
     const name = tag(el);
     const ctx = {
@@ -248,12 +265,12 @@ export function themeToStyle(doc, opts = {}) {
       zmin: Math.max(parentCtx.zmin, num(attr(el, 'zoom-min'), 0)),
       zmax: Math.min(parentCtx.zmax, num(attr(el, 'zoom-max'), Infinity)),
     };
-    const kinds = ['line', 'area', 'caption', 'pathText', 'circle', 'symbol'];
+    const kinds = ['line', 'area', 'caption', 'pathText', 'circle', 'symbol', 'lineSymbol'];
     if (!kinds.includes(name) || !usable(el)) return;
     const a = resolve(el);
     const nodeOnly = ctx.e === 'node';
     const multi = ctx.e === 'node' ? ['poi'] : ctx.e === 'way' ? ['way'] : ['poi', 'way'];
-    if (name === 'symbol') return ignore('symbol');
+    if (name === 'symbol' || name === 'lineSymbol') return drawSymbol(ctx, a, name === 'lineSymbol');
     if (name === 'caption') return drawText(el, ctx, a, multi, false);
     if (name === 'circle') {
       for (const sl of multi) {
@@ -318,6 +335,7 @@ export function themeToStyle(doc, opts = {}) {
       source: 'vtm-theme',
       variant: variant ? variant.id : null,
       layerCount: layers.length,
+      images,
       ignored: [...ignored].map(([w, n]) => (n > 1 || w === 'symbol' ? `${w} x${n}` : w)),
     },
     sources: { map: source },

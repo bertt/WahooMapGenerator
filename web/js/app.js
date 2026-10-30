@@ -252,10 +252,13 @@ function lightDarkOptions(menu) {
   return options.length ? options : menu.variants.map((v) => ({ id: v.id, name: v.name || v.id }));
 }
 
-function applyTheme(doc, label, meta) {
+function applyTheme(doc, label, meta, base) {
   const menu = listVariants(doc); // throws on an invalid theme
   themeToStyle(doc, { tileUrl: 'mapsforge://{z}/{x}/{y}' }); // dry run to surface errors early
   state.themeDoc = doc;
+  state.themeBase = base || null; // icon paths in the theme are relative to this URL
+  state.themeImages = {};
+  state.imagePending = new Set();
   const select = $('variant');
   const options = lightDarkOptions(menu);
   select.replaceChildren(...options.map((o) => new Option(o.name, o.id)));
@@ -267,6 +270,7 @@ function applyTheme(doc, label, meta) {
 
 async function loadDefaultTheme() {
   let text;
+  let base = DEFAULT_THEME_URL;
   let meta = `Loaded from ${DEFAULT_THEME_URL}`;
   try {
     const response = await fetch(DEFAULT_THEME_URL);
@@ -274,10 +278,36 @@ async function loadDefaultTheme() {
     text = await response.text();
   } catch {
     text = await (await fetch(DEFAULT_THEME)).text();
+    base = new URL(DEFAULT_THEME, location.href).href;
     meta = 'Bundled copy (could not reach GitHub)';
   }
-  applyTheme(parseTheme(text), 'Wahoo ELEMNT default (18001)', meta);
+  applyTheme(parseTheme(text), 'Wahoo ELEMNT default (18001)', meta, base);
 }
+
+// Theme icons are loaded on demand when the map asks for an image that is not in the style yet.
+map.on('styleimagemissing', async (e) => {
+  const spec = state.themeImages?.[e.id];
+  if (!spec || !state.themeBase || state.imagePending.has(e.id)) return;
+  const pending = state.imagePending;
+  pending.add(e.id);
+  try {
+    const response = await fetch(new URL(spec.src, state.themeBase));
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const bitmap = await createImageBitmap(await response.blob());
+    const width = Math.max(1, Math.round(spec.width));
+    const height = Math.max(1, Math.round((bitmap.height / bitmap.width) * width));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    if (pending === state.imagePending && !map.hasImage(e.id)) map.addImage(e.id, ctx.getImageData(0, 0, width, height));
+  } catch (err) {
+    console.warn(`Could not load theme icon ${spec.src}: ${err.message}`);
+  } finally {
+    pending.delete(e.id);
+  }
+});
 
 function buildViewStyle() {
   const style = themeToStyle(state.themeDoc, {
@@ -286,6 +316,7 @@ function buildViewStyle() {
     minzoom: MIN_VIEW_ZOOM,
     maxzoom: Math.min(17, state.mapInfo?.maxzoom ?? 17),
   });
+  state.themeImages = style.metadata.images;
   const clear = 'rgba(0,0,0,0)';
   // Invisible layers that make every feature clickable, also those the theme does not draw.
   style.layers.push(
@@ -319,7 +350,7 @@ async function loadStyleUrl(url) {
   try {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    applyTheme(parseTheme(await response.text()), 'Custom style (URL)', url);
+    applyTheme(parseTheme(await response.text()), 'Custom style (URL)', url, new URL(url, location.href).href);
   } catch (err) {
     showError('style-error', `Could not load the theme (the server must allow cross-origin requests): ${err.message}`);
   }

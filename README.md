@@ -73,6 +73,8 @@ pick a z=8 tile, drop in the `.osm.pbf` from [Geofabrik](https://download.geofab
 click features to see their attributes, and download the result as `.map.lzma`. Existing `.map` / `.map.lzma` files can be opened by upload or URL.
 Geofabrik does not send CORS headers, so the extract has to be downloaded by hand and uploaded.
 
+Icons in a theme (`<symbol>` for POIs and `<lineSymbol>` repeated along lines, with `src="symbols/….png"`) are shown in the viewer too. The PNGs are resolved relative to the theme URL, so this works for themes loaded by URL (the server must send CORS headers, as `raw.githubusercontent.com` does); a theme uploaded as a single file shows only its fallback shapes. Pattern fills are approximated by flat colours.
+
 ```
 cargo build --release --lib --target wasm32-unknown-unknown --no-default-features
 wasm-bindgen --target web --out-dir web/pkg target/wasm32-unknown-unknown/release/wahoo_map.wasm   # CLI version must match Cargo.lock
