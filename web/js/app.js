@@ -346,14 +346,19 @@ async function loadStyleUrl(url) {
   }
 }
 
-$('style-file').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
+async function loadStyleFile(file) {
   if (!file) return;
+  showError('style-error', '');
   try {
     applyTheme(parseTheme(await file.text()), 'Custom style (upload)', file.name);
   } catch (err) {
     showError('style-error', err.message);
   }
+}
+
+$('style-file').addEventListener('change', (e) => {
+  loadStyleFile(e.target.files[0]);
+  e.target.value = '';
 });
 
 // ---- viewer: opening a map ---------------------------------------------------------------
@@ -392,11 +397,16 @@ $('map-file').addEventListener('change', (e) => {
   e.target.value = '';
 });
 
-// Drag & drop a .map / .map.lzma onto the upload box or anywhere on the map.
-for (const target of [document.querySelector('label.drop.small'), document.querySelector('.stage')]) {
+// Drag & drop a .map / .map.lzma (map) or .xml (style) onto the upload boxes or anywhere on the map.
+const isStyleFile = (f) => f && /\.xml$/i.test(f.name);
+for (const target of [document.querySelector('#map-file').closest('label'), $('style-drop'), document.querySelector('.stage')]) {
   for (const type of ['dragenter', 'dragover']) target.addEventListener(type, (e) => { e.preventDefault(); target.classList.add('over'); });
   for (const type of ['dragleave', 'drop']) target.addEventListener(type, (e) => { e.preventDefault(); target.classList.remove('over'); });
-  target.addEventListener('drop', (e) => loadFile(e.dataTransfer.files[0]));
+  target.addEventListener('drop', (e) => {
+    const file = e.dataTransfer.files[0];
+    if (isStyleFile(file) || target.id === 'style-drop') loadStyleFile(file);
+    else loadFile(file);
+  });
 }
 
 $('map-url-go').addEventListener('click', () => loadUrl($('map-url').value.trim()));

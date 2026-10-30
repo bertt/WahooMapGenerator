@@ -60,8 +60,11 @@
           <input type="url" id="style-url" placeholder="https://…/theme.xml (CORS required)">
           <button class="btn" id="style-url-go">Load</button>
         </div>
-        <div id="style-upload-row" class="row hidden">
-          <input type="file" id="style-file" accept=".xml">
+        <div id="style-upload-row" class="hidden">
+          <label class="drop small" id="style-drop">
+            <input type="file" id="style-file" accept=".xml">
+            <span class="drop-title">Drop or click to upload a render theme <code>.xml</code></span>
+          </label>
         </div>
         <button class="btn sample" id="style-sample">Load sample style: vtm-elemnt-enhanced.xml</button>
         <div class="active-style">
