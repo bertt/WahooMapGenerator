@@ -137,11 +137,9 @@ const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 function ensureSelectionLayers() {
   if (map.getSource('selection')) return;
   map.addSource('selection', { type: 'geojson', data: EMPTY_FC });
-  const poly = ['==', ['geometry-type'], 'Polygon'];
+  // Polygons are not highlighted: query results are clipped to the tile and would draw a square.
   const line = ['==', ['geometry-type'], 'LineString'];
   const point = ['==', ['geometry-type'], 'Point'];
-  map.addLayer({ id: 'sel-fill', type: 'fill', source: 'selection', filter: poly, paint: { 'fill-color': '#ff2d95', 'fill-opacity': 0.2 } });
-  map.addLayer({ id: 'sel-outline', type: 'line', source: 'selection', filter: poly, paint: { 'line-color': '#ff2d95', 'line-width': 3 } });
   map.addLayer({ id: 'sel-line-casing', type: 'line', source: 'selection', filter: line, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 9 } });
   map.addLayer({ id: 'sel-line', type: 'line', source: 'selection', filter: line, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ff2d95', 'line-width': 5 } });
   map.addLayer({ id: 'sel-point', type: 'circle', source: 'selection', filter: point, paint: { 'circle-radius': 9, 'circle-color': '#ff2d95', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3 } });
