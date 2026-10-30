@@ -4,6 +4,8 @@
 
 [![Wahoo Map Generator website](docs/screenshot.png)](https://bertt.github.io/WahooMapGenerator/)
 
+[![Toolbox: select a z=8 tile on the map and convert an OSM PBF](docs/screenshot-toolbox.png)](https://bertt.github.io/WahooMapGenerator/#toolbox)
+
 A Rust tool that builds a Wahoo map tile (mapsforge v3 `.map`, LZMA-compressed) from
 OpenStreetMap data. It produces files shaped like
 `https://cdn.wahooligan.com/wahoo-maps/23/tiles/8/131/84.map.lzma`, where `8` is the zoom,

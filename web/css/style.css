@@ -40,6 +40,11 @@ code { background: rgba(255, 255, 255, 0.1); padding: 1px 6px; border-radius: 5p
 .tool { width: 100%; text-align: left; background: transparent; border: 1px solid transparent; color: var(--text); padding: 8px 10px; border-radius: 8px; cursor: pointer; font: inherit; }
 .tool.active { background: rgba(54, 209, 196, 0.15); border-color: rgba(54, 209, 196, 0.4); }
 .dialog { max-width: 860px; }
+.dialog .form-row { margin: 8px 0; }
+.dialog .form-row > label { padding-top: 4px; }
+.dialog .hint { margin: 4px 0; font-size: 12px; }
+.dialog .drop { padding: 8px 10px; }
+.dialog .tile-info { padding: 6px 10px; font-size: 13px; }
 .form-row { display: grid; grid-template-columns: 150px 1fr; gap: 14px; margin: 14px 0; align-items: start; }
 .form-row > label { color: var(--muted); padding-top: 8px; font-size: 14px; }
 .form-row .drop { margin-bottom: 4px; }
@@ -90,7 +95,7 @@ code { background: rgba(255, 255, 255, 0.1); padding: 1px 6px; border-radius: 5p
 .hint { color: var(--muted); font-size: 13px; margin: 8px 0; }
 .hint.warn { color: #d6c28f; }
 
-.tile-map { height: min(300px, 38vh); min-height: 200px; border-radius: 10px; overflow: hidden; margin-bottom: 8px; border: 1px solid var(--card-border); }
+.tile-map { height: min(260px, 32vh); min-height: 180px; border-radius: 10px; overflow: hidden; margin-bottom: 8px; border: 1px solid var(--card-border); }
 .tile-info { padding: 10px 12px; border-radius: 10px; background: rgba(54, 209, 196, 0.1); border: 1px solid rgba(54, 209, 196, 0.35); font-size: 14px; }
 .tile-info.empty { background: rgba(255, 255, 255, 0.04); border-color: var(--card-border); color: var(--muted); }
 .tile-info b { color: var(--accent); }
